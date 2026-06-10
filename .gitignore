@@ -42,3 +42,5 @@ yarn-error.*
 
 # local env (API keys)
 .env
+node_modules.nosync/
+node_modules
