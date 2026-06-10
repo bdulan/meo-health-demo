@@ -1,0 +1,71 @@
+# Meo Adaptive AI Meditation Coach — Design Doc
+
+## 1. The loop & the latency answer
+
+The loop: the wearable streams a flow score at 1 Hz → a deterministic on-device state machine detects *sustained* distraction → the coach speaks an adaptive cue → stays silent while focus is high → every event is logged.
+
+Latency is the #1 criterion, so the response is **two-layered**:
+
+1. **Instant layer (~0 ms).** The moment a trigger fires, a pre-written cue is spoken from an on-device cache via TTS. No network, no model, no wait. The meditator hears guidance within the same second the detector fires.
+2. **Personalized layer (async).** Concurrently, Claude (`claude-haiku-4-5`) is asked for one short cue tailored to the trigger snapshot (sharp vs slow, current focus, baseline, seconds drifting, recent cues). If it arrives within 2.5 s it speaks right after the cached cue finishes. If it's slow or errors, it is skipped silently.
+
+Detection is deterministic and on-device on purpose: it's free (no tokens for the 99% of seconds where nothing happens), it's instant (no round trip on the critical path), it's private (the raw stream never leaves the device), and it's testable (pure functions, unit-tested timing).
+
+## 2. Architecture — three seams
+
+```
+[replay.jsonl] → INGEST → readings → DECIDE → trigger events → RESPOND → audio out
+                                   ↘ every event → LOG (wraps all three)
+```
+
+- **INGEST** (`src/ingest.ts`) normalizes a messy stream into a contiguous 1 Hz timeline: orders by `ts` within a 3-event lookahead buffer, carries the last value forward across gaps (marked `gap:true`), and skips malformed lines without ever throwing.
+- **DECIDE** (`src/decide.ts`) is a pure state machine: `WARMUP → MONITORING → DRIFTING → TRIGGERED(cooldown) → MONITORING`. It has **no knowledge an LLM exists** — it emits trigger events with a snapshot payload. That seam is why detection is fully unit-testable and why the model behind RESPOND can be swapped (or removed) without touching detection.
+- **RESPOND** (`src/respond.ts`) owns the two-layer output and the cue cache (`src/cues.ts`).
+- **LOG** (`src/log.ts`) appends `{ts, tSec, type, payload}` for every reading, baseline update, state change, trigger, LLM request/response, speech start/skip. Export = JSON dump; a session is fully reconstructable from it.
+
+All thresholds live in one config object (`src/config.ts`) — no magic numbers inline.
+
+## 3. Detection rule & why (the push-back on the brief)
+
+The PRD's raw rule — "trigger on a 30% drop" — is jumpy. Real attention data dips and recovers constantly; an instantaneous percent-drop rule would interrupt meditators at exactly the moments they're recovering on their own (the replay's planted 9-second dip at ~3:00 proves this — it must not fire, and doesn't).
+
+The shipped rule is **sustained drift**: a reading counts as drifting if `focus < baseline × 0.7` (the PRD's 30%, applied against a rolling 60 s baseline) **or** `focus < 70` (absolute zone-3 floor). A trigger fires only after **20 consecutive drifting seconds**. Warmup (30 s) suppresses everything; cooldown rate-limits to one trigger per 20 s; and a trigger re-arms only after the meditator actually recovers — one cue per drift episode, not a nag every 40 seconds of a long low stretch.
+
+Triggers are classified **sharp** (focus fell ≥15 pts within the 5 s before drift entry — a cliff) vs **slow** (a gradual slide), and the classification is passed to RESPOND so cue intent can differ (grounding cues for cliffs, re-engagement cues for slides).
+
+Everything is config-driven for tuning. Next iteration: slope/derivative detection (EWMA of the first difference) to catch slides earlier than the absolute floor does, plus per-user adaptive floors learned from session history.
+
+## 4. Cache ↔ generate strategy
+
+Cached cues cover the universal moments — a distracted mind needs a breath/body/sound anchor or a gentle acknowledgment, and those eight sentences don't need a model. The LLM adds variety and personalization on top, constrained to differ in intent/modality from the last three cues spoken (enforced in the prompt and by the no-repeat window in the cache).
+
+**Promotion path:** generated cues that perform well (focus recovers within N seconds of the cue, no user override) graduate into the cache, gated by an eval. Over time the cache becomes a personalized, validated cue library and the model is called less.
+
+**Economics:** most user-seconds never touch a backend. In the 12-minute demo session there are exactly 2 LLM calls (~50 output tokens each). Detection costs zero; silence costs zero.
+
+## 5. Failure modes
+
+- **LLM slow (>2.5 s), unreachable, or no API key:** the cached cue already played — the moment was covered. The generated cue is skipped *silently* and logged (`speechSkip`). This is the degraded mode, and it is indistinguishable from normal operation to the meditator.
+- **Stream gap:** last value carried forward, marked `gap:true`, no crash.
+- **Out-of-order events:** reordered within a 3-event lookahead.
+- **Malformed lines:** skipped and logged, never thrown.
+- **Silence is always valid.** The coach saying nothing is the default state, so no failure path ever needs to invent speech.
+
+## 6. Privacy boundary (P2 hook)
+
+The raw 1 Hz biometric stream stays on device — INGEST and DECIDE never make a network call. Only trigger snapshots (five numbers and three recent cue strings) reach the model, ~2 times per session. In production the exported log would hold aggregates (trigger times, cue ids, recovery latencies), not the raw stream.
+
+## 7. What I cut and why
+
+- **TTS quality:** `expo-speech` (on-device, free, instant) instead of ElevenLabs. The seam is one function; production swaps the speaker without touching the loop.
+- **Log infra:** in-memory array → JSON export. The replayability story doesn't need a database.
+- **Multi-level user-defined difficulty (P1):** not in the loop's critical path.
+- **Eval harness:** described, not built — the design is an A/B of adaptive coach vs fixed-script sessions, scored on time-to-recovery after trigger, triggers-per-session, and post-session self-report. The intervention-precision metric is already measurable from the log (focus recovery slope after each cue).
+
+## 8. What I'd build next
+
+1. The eval harness above — it gates everything else.
+2. The cue-promotion pipeline (validated generated cues → cache).
+3. Multi-voice / multi-language via the TTS layer swap.
+4. Session-intent context (P1): pass the user's stated intention ("calm before a meeting") into the cue prompt.
+5. Slope-based early detection to catch slow drifts before they cross the absolute floor.
