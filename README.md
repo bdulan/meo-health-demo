@@ -1,6 +1,6 @@
 # Meo · Adaptive AI Meditation Coach (prototype)
 
-Detect sustained distraction from a 1 Hz flow-score stream → speak an adaptive cue instantly → stay silent when focus is high → log everything. See [DESIGN.md](DESIGN.md) for the full rationale, [EVAL.md](EVAL.md) for the leading-metric numbers on the bundled replay, and [MEO_BUILD_SPEC.md](MEO_BUILD_SPEC.md) for the brief.
+Detect sustained distraction from a 1 Hz flow-score stream → speak an adaptive cue instantly → stay silent when focus is high → log everything. See [DESIGN.md](DESIGN.md) for the architecture and rationale, and [EVAL.md](EVAL.md) for the leading-metric numbers on the bundled replay.
 
 **Data contract:** each replay line is `{ ts: ISO-8601, flow_score: 0–100, hrv: ms, source }`. The signal is `flow_score` (legacy `focus` is accepted as an alias); `hrv` is carried for PRD-shape compliance but ignored by all logic.
 
