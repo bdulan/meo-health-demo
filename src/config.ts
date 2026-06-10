@@ -33,14 +33,28 @@ export const RESPOND_CONFIG = {
   noRepeatWindow: 3,
 };
 
-export const ZONES: { min: number; label: string }[] = [
-  { min: 85, label: 'Zone 4 · Deep' },
-  { min: 70, label: 'Zone 3 · Flow' },
-  { min: 55, label: 'Zone 2 · Settling' },
-  { min: 0, label: 'Zone 1 · Distracted' },
+// Meditative zones per the meo brand deck. The orb transitions slowly
+// between these colors as the meditator moves zones.
+export const ZONES: { min: number; label: string; color: string }[] = [
+  { min: 0, label: 'Zone 1 — Distracted', color: '#f5f5f7' }, // white
+  { min: 55, label: 'Zone 2 — Relaxed', color: '#c3b2f3' }, // lighter purple
+  { min: 70, label: 'Zone 3 — Deep focus', color: '#5246c4' }, // darker purple
 ];
 
-export function zoneLabel(focus: number): string {
-  for (const z of ZONES) if (focus >= z.min) return z.label;
-  return ZONES[ZONES.length - 1].label;
+/** 0-based zone index for a flow score (0 = Zone 1). */
+export function zoneIndex(focus: number): number {
+  let idx = 0;
+  ZONES.forEach((z, i) => {
+    if (focus >= z.min) idx = i;
+  });
+  return idx;
 }
+
+export function zoneLabel(focus: number): string {
+  return ZONES[zoneIndex(focus)].label;
+}
+
+export const ZONE_COLORS = ZONES.map((z) => z.color);
+
+/** How long the orb takes to glide between zone colors. */
+export const ORB_TRANSITION_MS = 1500;

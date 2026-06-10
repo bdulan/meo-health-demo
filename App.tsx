@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   FlatList,
   Platform,
   Pressable,
@@ -8,7 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SPEED, zoneLabel } from './src/config';
+import { ORB_TRANSITION_MS, SPEED, ZONE_COLORS, zoneIndex, zoneLabel } from './src/config';
 import { createDetector } from './src/decide';
 import { parseReplay, play, Player } from './src/ingest';
 import { SessionLog } from './src/log';
@@ -25,6 +26,28 @@ const STATE_COLORS: Record<DetectorStateName, string> = {
   DRIFTING: '#ff9f0a',
   TRIGGERED: '#ff453a',
 };
+
+/** The meo orb: glides between zone colors as the meditator moves zones. */
+function ZoneOrb({ focus }: { focus: number | null }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  const idx = focus === null ? 0 : zoneIndex(focus);
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: idx,
+      duration: ORB_TRANSITION_MS,
+      useNativeDriver: false, // color interpolation requires the JS driver
+    }).start();
+  }, [idx, anim]);
+  const backgroundColor = anim.interpolate({
+    inputRange: ZONE_COLORS.map((_, i) => i),
+    outputRange: ZONE_COLORS,
+  });
+  return (
+    <Animated.View style={[styles.orb, { backgroundColor }]}>
+      <View style={styles.orbHighlight} />
+    </Animated.View>
+  );
+}
 
 export default function App() {
   const [running, setRunning] = useState(false);
@@ -167,15 +190,20 @@ export default function App() {
     <View style={styles.container}>
       <StatusBar style="light" />
       <Text style={styles.title}>Meo · Adaptive Coach</Text>
-      <Text style={styles.subtitle}>
-        replay {mins}:{String(secs).padStart(2, '0')} · {SPEED}x · {eventCount} events logged
-      </Text>
+      <View style={styles.subtitleRow}>
+        <Text style={styles.subtitle}>
+          replay {mins}:{String(secs).padStart(2, '0')} · {SPEED}x · {eventCount} events logged ·{' '}
+        </Text>
+        <Text style={[styles.stateInline, { color: STATE_COLORS[detState] }]}>{detState}</Text>
+      </View>
 
       <View style={styles.statsRow}>
         <View style={styles.statBox}>
           <Text style={styles.statLabel}>FLOW</Text>
           <Text style={styles.focusNumber}>{focus !== null ? Math.round(focus) : '—'}</Text>
-          <Text style={styles.zone}>{focus !== null ? zoneLabel(focus) : 'waiting'}</Text>
+          <Text style={styles.zone}>
+            {focusStreak >= 60 ? `silent ${focusStreak}s ✓` : `focus streak ${focusStreak}s`}
+          </Text>
         </View>
         <View style={styles.statBox}>
           <Text style={styles.statLabel}>BASELINE</Text>
@@ -183,13 +211,9 @@ export default function App() {
           <Text style={styles.zone}>rolling 60s mean</Text>
         </View>
         <View style={styles.statBox}>
-          <Text style={styles.statLabel}>STATE</Text>
-          <View style={[styles.badge, { backgroundColor: STATE_COLORS[detState] }]}>
-            <Text style={styles.badgeText}>{detState}</Text>
-          </View>
-          <Text style={styles.zone}>
-            {focusStreak >= 60 ? `silent ${focusStreak}s ✓` : `focus streak ${focusStreak}s`}
-          </Text>
+          <Text style={styles.statLabel}>MEDITATIVE ZONE</Text>
+          <ZoneOrb focus={focus} />
+          <Text style={styles.zone}>{focus !== null ? zoneLabel(focus) : 'waiting'}</Text>
         </View>
       </View>
 
@@ -289,7 +313,9 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   title: { color: '#fff', fontSize: 22, fontWeight: '700' },
-  subtitle: { color: '#8e8e93', fontSize: 13, marginTop: 2, marginBottom: 16 },
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2, marginBottom: 16 },
+  subtitle: { color: '#8e8e93', fontSize: 13 },
+  stateInline: { fontSize: 13, fontWeight: '700' },
   statsRow: { flexDirection: 'row', gap: 10 },
   statBox: {
     flex: 1,
@@ -302,8 +328,22 @@ const styles = StyleSheet.create({
   focusNumber: { color: '#fff', fontSize: 36, fontWeight: '800' },
   baselineNumber: { color: '#fff', fontSize: 36, fontWeight: '300' },
   zone: { color: '#8e8e93', fontSize: 11, marginTop: 2 },
-  badge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginVertical: 8 },
-  badgeText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  orb: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginVertical: 6,
+    overflow: 'hidden',
+  },
+  orbHighlight: {
+    position: 'absolute',
+    top: 5,
+    left: 8,
+    width: 18,
+    height: 14,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
   cueBox: {
     backgroundColor: '#2c2c2e',
     borderRadius: 12,
