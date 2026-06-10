@@ -11,6 +11,15 @@ Latency is the #1 criterion, so the response is **two-layered**:
 
 Detection is deterministic and on-device on purpose: it's free (no tokens for the 99% of seconds where nothing happens), it's instant (no round trip on the critical path), it's private (the raw stream never leaves the device), and it's testable (pure functions, unit-tested timing).
 
+**Latency budget** (PRD allows < 3 s from event to first audible token):
+
+| Step | Budget | Measured |
+|---|---|---|
+| Trigger → cached cue speaking | ~0 ms (same tick) | < 1 s incl. TTS startup |
+| Trigger → Claude cue ready | 2.5 s hard gate, else skip | 0.7–2.1 s observed |
+
+**Model + provider:** Anthropic `claude-haiku-4-5`. The cue is one ≤18-word sentence, so the constraint is time-to-completion and cost, not reasoning depth — Haiku is the fastest, cheapest tier that holds the brand voice, and observed full-response latency (0.7–2.1 s) fits inside the 2.5 s gate that the bigger models would regularly miss. ~300 tokens per session total. The provider is swappable behind the RESPOND seam; nothing upstream knows Claude exists.
+
 ## 2. Architecture — three seams
 
 ```
@@ -51,9 +60,11 @@ Cached cues cover the universal moments — a distracted mind needs a breath/bod
 - **Malformed lines:** skipped and logged, never thrown.
 - **Silence is always valid.** The coach saying nothing is the default state, so no failure path ever needs to invent speech.
 
-## 6. Privacy boundary (P2 hook)
+## 6. Where the P2 hooks live
 
-The raw 1 Hz biometric stream stays on device — INGEST and DECIDE never make a network call. Only trigger snapshots (five numbers and three recent cue strings) reach the model, ~2 times per session. In production the exported log would hold aggregates (trigger times, cue ids, recovery latencies), not the raw stream.
+**On-device inference / privacy boundary:** the model boundary already sits where the PRD wants it — INGEST and DECIDE are pure on-device code with no network calls; the "focus detector" is on-device today. Only trigger snapshots (five numbers and three recent cue strings) reach the model, ~2 times per session. In production the exported log would hold aggregates (trigger times, cue ids, recovery latencies), not the raw stream.
+
+**Personalization across sessions (design only):** no retraining needed — personalization is data the existing seams already produce. A per-user profile (which cue intents preceded the fastest recoveries, typical baseline, drift patterns) is computed from session logs and injected in two places: DECIDE reads tuned thresholds from `DETECTION_CONFIG` (already config-driven), and RESPOND feeds the profile into the prompt and biases cached-cue selection. The cue-promotion pipeline (§4) is the same mechanism: the user's own best-performing generated cues become their personal cache.
 
 ## 7. What I cut and why
 
