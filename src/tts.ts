@@ -11,9 +11,9 @@
 //
 // RESPOND and the UI just call speak(); they never know which engine ran.
 
-import { Platform } from 'react-native';
 import * as Speech from 'expo-speech';
 import { TTS_CONFIG } from './config';
+import { NativeAudioHandle, playAudioBytes } from './nativeAudio';
 import {
   Accent,
   bcp47,
@@ -54,8 +54,7 @@ interface ElevenVoice {
 export class TtsEngineManager {
   private voicesCache: ElevenVoice[] | null = null;
   private resolved = new Map<string, string>(); // "accent:gender" -> voiceId
-  private currentAudio: HTMLAudioElement | null = null;
-  private nativePlayer: { remove?: () => void } | null = null;
+  private audioHandle: NativeAudioHandle | null = null;
 
   /** Speak `text` in the given profile. Resolves once audio has *started*. */
   async speak(text: string, profile: VoiceProfile, opts: SpeakOptions): Promise<SpeakResult> {
@@ -175,46 +174,21 @@ export class TtsEngineManager {
   }
 
   // --- playback ---------------------------------------------------------------
+  // Platform-split: nativeAudio.web.ts uses HTML5 Audio; nativeAudio.ts uses
+  // expo-audio. Metro resolves the right one, so expo-audio never hits web.
   private async play(bytes: ArrayBuffer, opts: SpeakOptions): Promise<void> {
-    if (Platform.OS === 'web') {
-      const blob = new Blob([bytes], { type: 'audio/mpeg' });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      this.currentAudio = audio;
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        opts.onDone?.();
-      };
-      opts.onStart?.('elevenlabs');
-      await audio.play();
-      return;
-    }
-    // native: write to a temp file and play with expo-audio
-    const FileSystem = await import('expo-file-system');
-    const { createAudioPlayer } = await import('expo-audio');
-    const file = new FileSystem.File(FileSystem.Paths.cache, `cue-${Date.now()}.mp3`);
-    if (file.exists) file.delete();
-    file.create();
-    file.write(new Uint8Array(bytes));
-    const player = createAudioPlayer(file.uri);
-    this.nativePlayer = player as unknown as { remove?: () => void };
-    opts.onStart?.('elevenlabs');
-    player.play();
+    this.audioHandle = await playAudioBytes(
+      bytes,
+      () => opts.onStart?.('elevenlabs'),
+      () => opts.onDone?.()
+    );
   }
 
   stop(): void {
     Speech.stop();
-    if (this.currentAudio) {
-      this.currentAudio.pause();
-      this.currentAudio = null;
-    }
-    if (this.nativePlayer?.remove) {
-      try {
-        this.nativePlayer.remove();
-      } catch {
-        /* noop */
-      }
-      this.nativePlayer = null;
+    if (this.audioHandle) {
+      this.audioHandle.stop();
+      this.audioHandle = null;
     }
   }
 }
