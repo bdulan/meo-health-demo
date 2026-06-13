@@ -58,6 +58,7 @@ export type LogEventType =
   | 'llmRequest'
   | 'llmResponse'
   | 'speechStart'
+  | 'speechEngine'
   | 'speechSkip'
   | 'ingestWarning'
   | 'sessionStart'

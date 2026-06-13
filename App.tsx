@@ -5,17 +5,30 @@ import {
   FlatList,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { ORB_TRANSITION_MS, SPEED, ZONE_COLORS, zoneIndex, zoneLabel } from './src/config';
+import { cuesForLanguage } from './src/cues';
 import { createDetector } from './src/decide';
 import { parseReplay, play, Player } from './src/ingest';
 import { SessionLog } from './src/log';
 import { loadReplayText } from './src/replayAsset';
-import { Responder } from './src/respond';
+import { CueSpokenInfo, Responder } from './src/respond';
 import { DetectorStateName, LogEvent } from './src/types';
+import {
+  ACCENTS,
+  DEFAULT_PROFILE,
+  Gender,
+  GENDERS,
+  hasElevenLabsHint,
+  LANGUAGES,
+  profileLabel,
+  TOTAL_PROFILES,
+  VoiceProfile,
+} from './src/voices';
 
 const TRAIL_HIDDEN_TYPES = new Set(['reading', 'baselineUpdate']);
 const TRAIL_MAX = 80;
@@ -49,6 +62,14 @@ function ZoneOrb({ focus }: { focus: number | null }) {
   );
 }
 
+function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable style={[styles.chip, active && styles.chipActive]} onPress={onPress}>
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export default function App() {
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -57,15 +78,36 @@ export default function App() {
   const [baseline, setBaseline] = useState<number | null>(null);
   const [detState, setDetState] = useState<DetectorStateName>('WARMUP');
   const [focusStreak, setFocusStreak] = useState(0);
-  const [lastCue, setLastCue] = useState<{ text: string; layer: string } | null>(null);
+  const [lastCue, setLastCue] = useState<CueSpokenInfo | null>(null);
   const [trail, setTrail] = useState<LogEvent[]>([]);
   const [eventCount, setEventCount] = useState(0);
   const [exportNote, setExportNote] = useState<string | null>(null);
+  const [profile, setProfile] = useState<VoiceProfile>(DEFAULT_PROFILE);
 
   const logRef = useRef(new SessionLog());
   const playerRef = useRef<Player | null>(null);
   const responderRef = useRef<Responder | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
+
+  // One responder for the whole session — created lazily so Preview works
+  // before Start. Always reflects the latest selected voice profile.
+  const ensureResponder = useCallback((): Responder => {
+    if (!responderRef.current) {
+      responderRef.current = new Responder(logRef.current, (info) => setLastCue(info));
+    }
+    return responderRef.current;
+  }, []);
+
+  useEffect(() => {
+    ensureResponder().setProfile(profile);
+  }, [profile, ensureResponder]);
+
+  const previewVoice = useCallback(() => {
+    const sample = cuesForLanguage(profile.language)[0].text;
+    const r = ensureResponder();
+    r.setProfile(profile);
+    void r.preview(sample);
+  }, [profile, ensureResponder]);
 
   const start = useCallback(async () => {
     if (running) return;
@@ -84,8 +126,8 @@ export default function App() {
       }
     });
 
-    const responder = new Responder(log, (text, layer) => setLastCue({ text, layer }));
-    responderRef.current = responder;
+    const responder = ensureResponder();
+    responder.setProfile(profile);
     const detector = createDetector();
 
     let text: string;
@@ -98,6 +140,7 @@ export default function App() {
     const parsed = parseReplay(text);
     log.append('sessionStart', {
       speed: SPEED,
+      voice: profileLabel(profile),
       readings: parsed.readings.length,
       skippedLines: parsed.skippedLines.length,
       reordered: parsed.reorderedCount,
@@ -137,7 +180,7 @@ export default function App() {
         setFinished(true);
       }
     );
-  }, [running]);
+  }, [running, profile, ensureResponder]);
 
   const reset = useCallback(() => {
     playerRef.current?.stop();
@@ -185,6 +228,11 @@ export default function App() {
 
   const mins = Math.floor(tSec / 60);
   const secs = tSec % 60;
+  const lastCueHeader = lastCue
+    ? `LAST CUE · ${lastCue.layer === 'cached' ? 'INSTANT' : 'PERSONALIZED (CLAUDE)'} · ${
+        lastCue.engine === 'elevenlabs' ? 'ELEVENLABS' : 'ON-DEVICE'
+      }`
+    : 'LAST CUE';
 
   return (
     <View style={styles.container}>
@@ -192,7 +240,7 @@ export default function App() {
       <Text style={styles.title}>Meo · Adaptive Coach</Text>
       <View style={styles.subtitleRow}>
         <Text style={styles.subtitle}>
-          replay {mins}:{String(secs).padStart(2, '0')} · {SPEED}x · {eventCount} events logged ·{' '}
+          replay {mins}:{String(secs).padStart(2, '0')} · {SPEED}x · {eventCount} events ·{' '}
         </Text>
         <Text style={[styles.stateInline, { color: STATE_COLORS[detState] }]}>{detState}</Text>
       </View>
@@ -217,10 +265,49 @@ export default function App() {
         </View>
       </View>
 
-      <View style={styles.cueBox}>
-        <Text style={styles.statLabel}>
-          LAST CUE{lastCue ? (lastCue.layer === 'cached' ? ' · INSTANT (CACHED)' : ' · PERSONALIZED (CLAUDE)') : ''}
+      {/* Voice selector — language × accent × gender = the 80-voice matrix */}
+      <View style={styles.voiceBox}>
+        <View style={styles.voiceHeaderRow}>
+          <Text style={styles.statLabel}>VOICE · {TOTAL_PROFILES} profiles</Text>
+          <Pressable style={styles.previewBtn} onPress={previewVoice}>
+            <Text style={styles.previewBtnText}>🔊 Preview</Text>
+          </Pressable>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
+          {LANGUAGES.map((l) => (
+            <Chip
+              key={l.code}
+              label={l.label}
+              active={profile.language === l.code}
+              onPress={() => setProfile((p) => ({ ...p, language: l.code }))}
+            />
+          ))}
+        </ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
+          {ACCENTS.map((a) => (
+            <Chip
+              key={a.id}
+              label={a.label}
+              active={profile.accent === a.id}
+              onPress={() => setProfile((p) => ({ ...p, accent: a.id }))}
+            />
+          ))}
+          {GENDERS.map((g: Gender) => (
+            <Chip
+              key={g}
+              label={g === 'female' ? 'Female' : 'Male'}
+              active={profile.gender === g}
+              onPress={() => setProfile((p) => ({ ...p, gender: g }))}
+            />
+          ))}
+        </ScrollView>
+        <Text style={styles.voiceCaption}>
+          {profileLabel(profile)} · {hasElevenLabsHint() ? 'ElevenLabs premium' : 'on-device (no TTS key)'}
         </Text>
+      </View>
+
+      <View style={styles.cueBox}>
+        <Text style={styles.statLabel}>{lastCueHeader}</Text>
         <Text style={styles.cueText}>
           {lastCue ? `“${lastCue.text}”` : 'Silence is the default state.'}
         </Text>
@@ -266,6 +353,7 @@ function trailColor(type: string): string {
     case 'stateChange':
       return '#ff9f0a';
     case 'speechStart':
+    case 'speechEngine':
       return '#0a84ff';
     case 'llmRequest':
     case 'llmResponse':
@@ -287,16 +375,18 @@ function summarize(e: LogEvent): string {
       return `${p.type} · focus ${p.currentFocus} vs baseline ${p.baseline} · drifting ${p.secondsDrifting}s`;
     case 'speechStart':
       return `[${p.layer}] "${p.text}"`;
+    case 'speechEngine':
+      return `[${p.layer}] via ${p.engine}${p.note ? ` — ${p.note}` : ''}`;
     case 'llmRequest':
-      return `${p.model} · ${p.triggerType}`;
+      return `${p.model} · ${p.triggerType} · ${p.language}`;
     case 'llmResponse':
-      return `${p.latencyMs}ms · "${p.text}"`;
+      return p.preview ? `preview via ${p.engine}` : `${p.latencyMs}ms · "${p.text}"`;
     case 'speechSkip':
       return String(p.reason ?? '');
     case 'ingestWarning':
       return String(p.reason ?? JSON.stringify(p));
     case 'sessionStart':
-      return `${p.readings} readings · ${p.reordered} reordered · ${p.gapFills} gap-filled · ${p.skippedLines} skipped`;
+      return `${p.readings} readings · ${p.voice} · ${p.reordered} reordered · ${p.gapFills} gap-filled`;
     case 'sessionEnd':
       return `${p.triggers} trigger(s) · ${p.totalEvents} events`;
     default:
@@ -344,6 +434,37 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     backgroundColor: 'rgba(255,255,255,0.35)',
   },
+  voiceBox: {
+    backgroundColor: '#2c2c2e',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+  },
+  voiceHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  previewBtn: {
+    backgroundColor: '#0a84ff',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  previewBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  chipRow: { flexDirection: 'row', marginBottom: 6 },
+  chip: {
+    backgroundColor: '#3a3a3c',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 6,
+  },
+  chipActive: { backgroundColor: '#5246c4' },
+  chipText: { color: '#c7c7cc', fontSize: 12, fontWeight: '600' },
+  chipTextActive: { color: '#fff' },
+  voiceCaption: { color: '#8e8e93', fontSize: 11, marginTop: 4 },
   cueBox: {
     backgroundColor: '#2c2c2e',
     borderRadius: 12,

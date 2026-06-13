@@ -33,6 +33,18 @@ export const RESPOND_CONFIG = {
   noRepeatWindow: 3,
 };
 
+export const TTS_CONFIG = {
+  /** Premium voice provider. The instant cached layer stays on-device for
+   *  zero latency; the personalized layer and previews prefer ElevenLabs and
+   *  fall back to on-device speech on slow/error/no-key. */
+  elevenLabsModel: 'eleven_turbo_v2_5', // low-latency, multilingual
+  elevenLabsFormat: 'mp3_44100_128',
+  /** Premium render must beat this budget for the personalized layer, else fall back. */
+  premiumBudgetMs: 2500,
+  /** Speaking rate for on-device speech (expo-speech). */
+  deviceRate: 0.92,
+};
+
 // Meditative zones per the meo brand deck. The orb transitions slowly
 // between these colors as the meditator moves zones.
 export const ZONES: { min: number; label: string; color: string }[] = [
