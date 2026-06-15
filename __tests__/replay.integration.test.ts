@@ -16,7 +16,7 @@ describe('full replay.jsonl scenario map', () => {
     expect(parsed.reorderedCount).toBe(1); // one out-of-order pair (145/146)
     // contiguous 1 Hz timeline: tSec strictly increments by 1
     parsed.readings.forEach((r, i) => expect(r.tSec).toBe(i));
-    expect(parsed.readings.length).toBe(331); // ~5.5 min, all cases front-loaded
+    expect(parsed.readings.length).toBe(720); // full 12 min; all cases in the first ~4
   });
 
   const det = createDetector();

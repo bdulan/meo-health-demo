@@ -1,18 +1,20 @@
 # Eval note — leading metrics on the provided replay
 
-Computed by running the bundled replay (331 s, 1 Hz) through INGEST → DECIDE
+Computed by running the bundled replay (720 s / 12 min, 1 Hz) through INGEST → DECIDE
 (the same code path the app uses; script equivalent to the in-app session, cached-cue mode).
-The replay is a ~5.5-minute synthetic trace that front-loads every scenario into the first
+The replay is a full 12-minute synthetic trace that front-loads every scenario into the first
 ~4 minutes (warm-up, sustained focus, a brief recovering dip, a stream gap, an out-of-order
-pair, a sharp drop, and a slow drift) so the full loop is demonstrable without a 12-minute wait.
+pair, a sharp drop, and a slow drift), then runs a long sustained-focus tail so the
+silence behavior is exercised over a realistic session length.
 
 | Metric (PRD §7) | Definition used | Result |
 |---|---|---|
-| Time-in-focus | % of seconds where flow score ≥ rolling 60 s baseline | **65.9 %** |
+| Time-in-focus | % of seconds where flow score ≥ rolling 60 s baseline | **60.1 %** |
+| Time in Zone 3 | % of seconds with flow ≥ 70 (the deep-focus floor) | **79.7 %** |
 | Distraction triggers | sustained-drift rule (20 s below floor) | **2** — `sharp` @ t+156 s, `slow` @ t+245 s |
 | Recovery time | seconds from trigger until flow ≥ rolling baseline | 18 s (sharp), 36 s (slow) → **median 36 s** |
 | Intervention precision | % of triggers followed by recovery within 30 s | **1/2** (see caveat) |
-| Silence ratio | % of seconds with no coach speech (~6 s per spoken cue) | **96.4 %** |
+| Silence ratio | % of seconds with no coach speech (~6 s per spoken cue) | **98.3 %** |
 
 ## Caveats — read before trusting the numbers
 

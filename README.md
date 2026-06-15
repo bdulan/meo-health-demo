@@ -21,7 +21,7 @@ npx expo start        # then press i for iOS simulator, or w for web
 
 The 12-minute replay (`assets/replay.jsonl`) is bundled — press **Start**. No backend needed.
 
-- **Speed:** `SPEED` in [src/config.ts](src/config.ts) — `1` for the demo, `8` for fast iteration (full ~5.5-min session in ~40 s).
+- **Speed:** `SPEED` in [src/config.ts](src/config.ts) — `1` for the demo, `8` for fast iteration (full 12-min session in ~90 s; both triggers land by ~30 s in).
 - **Session intent (P1):** type a one-line intention ("I'm anxious about the demo tomorrow") before Start — it's carried into the Claude prompt for every cue that session.
 - **API keys (`cp .env.example .env`):**
   - `EXPO_PUBLIC_ANTHROPIC_API_KEY` — enables the personalized Claude cue (text). Without it: instant cached cues only.
@@ -38,7 +38,7 @@ Tests cover: the DECIDE state machine (warmup suppression, brief-dip no-fire, sh
 
 ## What to watch in the replay
 
-The replay is ~5.5 min and **front-loads every scenario into the first ~4 minutes** so the whole loop is visible quickly:
+The replay is a full **12 minutes**, but **every scenario is front-loaded into the first ~4 minutes** so the whole loop is visible quickly; the rest is a sustained-focus tail that exercises silence over a realistic session:
 
 | t | What happens |
 |---|---|
@@ -49,7 +49,8 @@ The replay is ~5.5 min and **front-loads every scenario into the first ~4 minute
 | ~2:25 | Out-of-order pair — reordered, no crash |
 | 2:36 | **Sharp trigger** — instant localized cue, then the Claude cue rendered in the selected voice |
 | 4:05 | **Slow trigger** — different cue intent, classified `slow` |
-| 5:30 | Session end — Export Log for the full reconstructable JSON |
+| 4:30–12:00 | Sustained focus — coach stays silent for the rest of the session |
+| 12:00 | Session end — Export Log for the full reconstructable JSON |
 
 Tip: before a trigger, set a **session intent** and click through the language / accent / gender chips, then hit **🔊 Preview** to demo the 80-voice scaling on command.
 
