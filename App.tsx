@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { ORB_TRANSITION_MS, SPEED, ZONE_COLORS, zoneIndex, zoneLabel } from './src/config';
@@ -83,6 +84,7 @@ export default function App() {
   const [eventCount, setEventCount] = useState(0);
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [profile, setProfile] = useState<VoiceProfile>(DEFAULT_PROFILE);
+  const [intent, setIntent] = useState('');
 
   const logRef = useRef(new SessionLog());
   const playerRef = useRef<Player | null>(null);
@@ -98,9 +100,20 @@ export default function App() {
     return responderRef.current;
   }, []);
 
+  // Refs mirror the live selection so the replay loop reads the current
+  // profile/intent at trigger time — no stale closure, no drift.
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+  const intentRef = useRef(intent);
+  intentRef.current = intent;
+
   useEffect(() => {
     ensureResponder().setProfile(profile);
   }, [profile, ensureResponder]);
+
+  useEffect(() => {
+    ensureResponder().setIntent(intent);
+  }, [intent, ensureResponder]);
 
   const previewVoice = useCallback(() => {
     const sample = cuesForLanguage(profile.language)[0].text;
@@ -128,6 +141,7 @@ export default function App() {
 
     const responder = ensureResponder();
     responder.setProfile(profile);
+    responder.setIntent(intent);
     const detector = createDetector();
 
     let text: string;
@@ -141,6 +155,7 @@ export default function App() {
     log.append('sessionStart', {
       speed: SPEED,
       voice: profileLabel(profile),
+      intent: intent.trim() || '(none)',
       readings: parsed.readings.length,
       skippedLines: parsed.skippedLines.length,
       reordered: parsed.reorderedCount,
@@ -162,6 +177,9 @@ export default function App() {
         log.append('baselineUpdate', { baseline: out.baseline }, reading.tSec);
         if (out.stateChange) log.append('stateChange', { ...out.stateChange }, reading.tSec);
         if (out.trigger) {
+          // use the voice/intent currently selected on screen, not a snapshot
+          responder.setProfile(profileRef.current);
+          responder.setIntent(intentRef.current);
           log.append('trigger', { ...out.trigger }, reading.tSec);
           responder.handleTrigger(out.trigger);
         }
@@ -180,7 +198,7 @@ export default function App() {
         setFinished(true);
       }
     );
-  }, [running, profile, ensureResponder]);
+  }, [running, profile, intent, ensureResponder]);
 
   const reset = useCallback(() => {
     playerRef.current?.stop();
@@ -263,6 +281,19 @@ export default function App() {
           <ZoneOrb focus={focus} />
           <Text style={styles.zone}>{focus !== null ? zoneLabel(focus) : 'waiting'}</Text>
         </View>
+      </View>
+
+      {/* Session intent (P1) — carried into the LLM context all session */}
+      <View style={styles.intentBox}>
+        <Text style={styles.statLabel}>SESSION INTENT</Text>
+        <TextInput
+          style={styles.intentInput}
+          value={intent}
+          onChangeText={setIntent}
+          editable={!running}
+          placeholder="e.g. I'm anxious about the demo tomorrow"
+          placeholderTextColor="#6b6b70"
+        />
       </View>
 
       {/* Voice selector — language × accent × gender = the 80-voice matrix */}
@@ -378,7 +409,7 @@ function summarize(e: LogEvent): string {
     case 'speechEngine':
       return `[${p.layer}] via ${p.engine}${p.note ? ` — ${p.note}` : ''}`;
     case 'llmRequest':
-      return `${p.model} · ${p.triggerType} · ${p.language}`;
+      return `${p.model} · ${p.triggerType} · ${p.language}${p.intent ? ` · intent: "${p.intent}"` : ''}`;
     case 'llmResponse':
       return p.preview ? `preview via ${p.engine}` : `${p.latencyMs}ms · "${p.text}"`;
     case 'speechSkip':
@@ -433,6 +464,21 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 9,
     backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  intentBox: {
+    backgroundColor: '#2c2c2e',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 10,
+  },
+  intentInput: {
+    color: '#fff',
+    fontSize: 14,
+    marginTop: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 8,
   },
   voiceBox: {
     backgroundColor: '#2c2c2e',

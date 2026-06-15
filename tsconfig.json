@@ -3,5 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "types": ["jest", "node"]
-  }
+  },
+  "include": ["App.tsx", "src/**/*", "__tests__/**/*"],
+  "exclude": ["node_modules", "node_modules.nosync"]
 }

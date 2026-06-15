@@ -17,10 +17,14 @@ import { DEFAULT_PROFILE, getLanguage, profileLabel, VoiceProfile } from './voic
 
 const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ?? '';
 
-function systemPrompt(languageName: string): string {
+function systemPrompt(languageName: string, intent: string): string {
+  const intentLine = intent.trim()
+    ? `The meditator's stated intention for this session is: "${intent.trim()}". Let it gently inform the cue when relevant. `
+    : '';
   return (
     'You are a meditation coach for Meo. Voice: calm, clinical, real. Generate ONE short spoken cue ' +
     `(≤ 18 words) to gently guide a distracted meditator back. Write it in ${languageName}. ` +
+    intentLine +
     'It must differ in intent or modality from the recent cues provided. ' +
     'No preamble, no quotes — output only the cue text.'
   );
@@ -37,6 +41,7 @@ export class Responder {
   private speakingCached = false;
   private pendingLlmCue: string | null = null;
   private profile: VoiceProfile = DEFAULT_PROFILE;
+  private intent = ''; // P1: one-line session intent, carried across the whole session
   private tts = new TtsEngineManager();
 
   constructor(
@@ -46,6 +51,10 @@ export class Responder {
 
   setProfile(profile: VoiceProfile): void {
     this.profile = profile;
+  }
+
+  setIntent(intent: string): void {
+    this.intent = intent;
   }
 
   /** Speak a sample cue in the current voice — drives the UI "Preview" button. */
@@ -101,6 +110,7 @@ export class Responder {
       baseline: trigger.baseline,
       secondsDrifting: trigger.secondsDrifting,
       language: lang.llmName,
+      intent: this.intent.trim() || undefined,
       recentCues: this.recentCues.slice(-RESPOND_CONFIG.noRepeatWindow),
     };
     this.log.append('llmRequest', { model: RESPOND_CONFIG.model, ...requestPayload }, trigger.tSec);
@@ -120,7 +130,7 @@ export class Responder {
         body: JSON.stringify({
           model: RESPOND_CONFIG.model,
           max_tokens: RESPOND_CONFIG.maxTokens,
-          system: systemPrompt(lang.llmName),
+          system: systemPrompt(lang.llmName, this.intent),
           messages: [{ role: 'user', content: JSON.stringify(requestPayload) }],
         }),
       });
